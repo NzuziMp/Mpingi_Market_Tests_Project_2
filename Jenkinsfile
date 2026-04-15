@@ -109,6 +109,7 @@ pipeline {
                     string(credentialsId: 'SUPABASE_URL',      variable: 'VITE_SUPABASE_URL'),
                     string(credentialsId: 'SUPABASE_ANON_KEY', variable: 'VITE_SUPABASE_ANON_KEY')
                 ]) {
+                    sh 'npm run test:integration || true'
                     sh 'npm run test:integration -- --reporter=verbose --reporter=junit --outputFile=reports/integration-tests.xml'
                 }
             }
