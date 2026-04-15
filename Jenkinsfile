@@ -30,6 +30,8 @@ pipeline {
         HEADLESS            = 'true'
         SONAR_HOST_URL      = 'http://sonarqube:9000'
         NODE_OPTIONS = '--max-old-space-size=4096 --trace-warnings'
+        VITE_SUPABASE_URL='https://horqvmrkneiycwiuarmr.supabase.co'
+       VITE_SUPABASE_ANON_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhvcnF2bXJrbmVpeWN3aXVhcm1yIiwicm9sZSI6ImFub24'
     }
 
     tools {
