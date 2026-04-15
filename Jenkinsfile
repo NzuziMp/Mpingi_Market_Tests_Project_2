@@ -20,6 +20,8 @@
  *   DEPLOY_SSH_KEY        — SSH key for production server (SSH credential)
  * ─────────────────────────────────────────────────────────────────────────────
  */
+export VITE_SUPABASE_URL
+export VITE_SUPABASE_ANON_KEY
 
 pipeline {
     agent any
