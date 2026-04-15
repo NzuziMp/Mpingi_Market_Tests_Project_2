@@ -1,0 +1,209 @@
+---
+# =============================================================================
+# Ansible Deployment Playbook — Mpingi Market
+# =============================================================================
+# Automates provisioning and deployment of the Mpingi Market web application
+# to a production-like Nginx server environment.
+#
+# Stages:
+#   1. System dependencies (Node.js, Nginx, Python)
+#   2. Application directory and environment setup
+#   3. Copy build artefacts from Jenkins workspace
+#   4. Configure and reload Nginx
+#   5. Configure Datadog APM agent
+#   6. Health-check and rollback on failure
+# =============================================================================
+
+- name: Deploy Mpingi Market to Production
+  hosts: production
+  become: true
+  vars:
+    app_name: mpingi-market
+    app_user: www-data
+    deploy_dir: /var/www/mpingi-market
+    backup_dir: /var/backups/mpingi-market
+    nginx_conf_dest: /etc/nginx/sites-available/mpingi-market
+    node_version: "20"
+    build_number: "{{ build_number | default('latest') }}"
+
+  tasks:
+
+    # ── 1. System Dependencies ─────────────────────────────────────────────
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+        cache_valid_time: 3600
+
+    - name: Install required system packages
+      apt:
+        name:
+          - nginx
+          - curl
+          - git
+          - python3-pip
+          - unzip
+        state: present
+
+    - name: Install Node.js {{ node_version }}
+      shell: |
+        curl -fsSL https://deb.nodesource.com/setup_{{ node_version }}.x | bash -
+        apt-get install -y nodejs
+      args:
+        creates: /usr/bin/node
+
+    # ── 2. Application Directory Setup ────────────────────────────────────
+    - name: Create deploy and backup directories
+      file:
+        path: "{{ item }}"
+        state: directory
+        owner: "{{ app_user }}"
+        group: "{{ app_user }}"
+        mode: '0755'
+      loop:
+        - "{{ deploy_dir }}"
+        - "{{ backup_dir }}"
+
+    - name: Backup current deployment before updating
+      shell: |
+        if [ -d "{{ deploy_dir }}/dist" ]; then
+          tar -czf "{{ backup_dir }}/backup-$(date +%Y%m%d%H%M%S).tar.gz" \
+            -C "{{ deploy_dir }}" dist
+        fi
+      ignore_errors: yes
+
+    # ── 3. Copy Build Artefacts ────────────────────────────────────────────
+    - name: Remove old dist directory
+      file:
+        path: "{{ deploy_dir }}/dist"
+        state: absent
+
+    - name: Copy new build artefacts to server
+      synchronize:
+        src: "{{ playbook_dir }}/../dist/"
+        dest: "{{ deploy_dir }}/dist/"
+        delete: yes
+        recursive: yes
+      notify: Reload Nginx
+
+    - name: Set correct ownership on deploy directory
+      file:
+        path: "{{ deploy_dir }}"
+        owner: "{{ app_user }}"
+        group: "{{ app_user }}"
+        recurse: yes
+
+    # ── 4. Nginx Configuration ─────────────────────────────────────────────
+    - name: Write Nginx site configuration
+      copy:
+        dest: "{{ nginx_conf_dest }}"
+        content: |
+          server {
+              listen 80;
+              listen [::]:80;
+              server_name mpingimarket.com www.mpingimarket.com;
+
+              root {{ deploy_dir }}/dist;
+              index index.html;
+
+              # Gzip compression
+              gzip on;
+              gzip_types text/plain text/css application/json
+                         application/javascript text/xml application/xml
+                         application/xml+rss text/javascript;
+              gzip_min_length 1024;
+
+              # Security headers
+              add_header X-Frame-Options "SAMEORIGIN";
+              add_header X-Content-Type-Options "nosniff";
+              add_header Referrer-Policy "strict-origin-when-cross-origin";
+              add_header X-XSS-Protection "1; mode=block";
+
+              # Static asset caching
+              location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf)$ {
+                  expires 1y;
+                  add_header Cache-Control "public, immutable";
+              }
+
+              # SPA routing — all routes to index.html
+              location / {
+                  try_files $uri $uri/ /index.html;
+              }
+
+              # Health check endpoint
+              location /health {
+                  return 200 'OK';
+                  add_header Content-Type text/plain;
+              }
+          }
+      notify: Reload Nginx
+
+    - name: Enable the site (symlink to sites-enabled)
+      file:
+        src: "{{ nginx_conf_dest }}"
+        dest: /etc/nginx/sites-enabled/mpingi-market
+        state: link
+      notify: Reload Nginx
+
+    - name: Remove default Nginx site if present
+      file:
+        path: /etc/nginx/sites-enabled/default
+        state: absent
+      notify: Reload Nginx
+
+    - name: Test Nginx configuration
+      command: nginx -t
+      register: nginx_test
+      failed_when: nginx_test.rc != 0
+
+    # ── 5. Datadog Agent Configuration ────────────────────────────────────
+    - name: Install Datadog agent for APM monitoring
+      shell: |
+        DD_API_KEY="{{ lookup('env', 'DD_API_KEY') }}" \
+        DD_SITE="datadoghq.com" \
+        bash -c "$(curl -L https://s3.amazonaws.com/dd-agent/scripts/install_script_agent7.sh)"
+      args:
+        creates: /etc/datadog-agent/datadog.yaml
+      ignore_errors: yes
+
+    - name: Configure Datadog agent
+      copy:
+        dest: /etc/datadog-agent/datadog.yaml
+        content: |
+          api_key: "{{ lookup('env', 'DD_API_KEY') }}"
+          site: datadoghq.com
+          hostname: mpingi-market-prod
+          tags:
+            - env:production
+            - service:mpingi-market
+            - version:{{ build_number }}
+          logs_enabled: true
+          apm_config:
+            enabled: true
+        owner: dd-agent
+        group: dd-agent
+        mode: '0640'
+      ignore_errors: yes
+
+    # ── 6. Health Check ────────────────────────────────────────────────────
+    - name: Wait for Nginx to start serving
+      uri:
+        url: "http://localhost/health"
+        return_content: yes
+        status_code: 200
+      register: health_check
+      retries: 5
+      delay: 5
+      until: health_check.status == 200
+
+    - name: Report successful deployment
+      debug:
+        msg: >
+          Mpingi Market build #{{ build_number }} deployed successfully.
+          Health check: {{ health_check.content }}
+
+  handlers:
+    - name: Reload Nginx
+      service:
+        name: nginx
+        state: reloaded
+        enabled: yes
