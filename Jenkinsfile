@@ -85,11 +85,11 @@ pipeline {
             steps {
                 withCredentials([
                     string(credentialsId: 'SUPABASE_URL', variable: 'SUPABASE_URL'),
-                    string(credentialsId: 'SUPABASE_SERVICE_ROLE_KEY', variable: 'SUPABASE_SERVICE_ROLE_KEY')
+                    string(credentialsId: 'SUPABASE_ANON_KEY', variable: 'SUPABASE_SERVICE_ANON_KEY')
                 ]) {
                     sh '''
                         export SUPABASE_URL=$SUPABASE_URL
-                        export SUPABASE_SERVICE_ROLE_KEY=$SUPABASE_SERVICE_ROLE_KEY
+                        export SUPABASE_ANON_KEY=$SUPABASE_ANON_KEY
                         npm run test:integration -- --reporter=junit --outputFile=reports/integration-tests.xml || true
                     '''
                 }
@@ -106,11 +106,11 @@ pipeline {
             steps {
                 withCredentials([
                     string(credentialsId: 'SUPABASE_URL', variable: 'SUPABASE_URL'),
-                    string(credentialsId: 'SUPABASE_SERVICE_ROLE_KEY', variable: 'SUPABASE_SERVICE_ROLE_KEY')
+                    string(credentialsId: 'SUPABASE_ANON_KEY', variable: 'SUPABASE_ANON_KEY')
                 ]) {
                     sh '''
                         export SUPABASE_URL=$SUPABASE_URL
-                        export SUPABASE_SERVICE_ROLE_KEY=$SUPABASE_SERVICE_ROLE_KEY
+                        export SUPABASE_ANON_KEY=$SUPABASE_SERVICE_ANON_KEY
                         npm run test:coverage || true
                     '''
                 }
