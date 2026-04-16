@@ -247,7 +247,7 @@ VITE_SUPABASE_ANON_KEY='sb_publishable_5fnfVwmzm-Dj72aWH2ZIlQ_1HoRyVus'
             emailext(
                 subject: "FAILED: Mpingi Market Build #${env.BUILD_NUMBER}",
                 body: "Build ${env.BUILD_NUMBER} failed. Check Jenkins: ${env.BUILD_URL}",
-                to: 'nzuzi.mpingi@email.com'
+                to: 'nzuzimp@gmail.com'
             )
         }
     }
