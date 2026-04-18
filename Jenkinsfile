@@ -5,7 +5,7 @@ pipeline {
         NODE_ENV       = 'test'
         APP_BASE_URL   = 'http://localhost:4173'
         HEADLESS       = 'true'
-        SONAR_HOST_URL = 'sonarqube:9002'
+        SONAR_HOST_URL = 'http://sonarqube:9000'
         NODE_OPTIONS   = '--max-old-space-size=4096'
     }
 
