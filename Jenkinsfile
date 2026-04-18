@@ -5,7 +5,6 @@ pipeline {
         NODE_ENV       = 'test'
         APP_BASE_URL   = 'http://localhost:4173'
         HEADLESS       = 'true'
-        SONAR_HOST_URL = 'http://192.168.87.1:9000'
         NODE_OPTIONS   = '--max-old-space-size=4096'
     }
 
@@ -17,19 +16,25 @@ pipeline {
         timeout(time: 45, unit: 'MINUTES')
         buildDiscarder(logRotator(numToKeepStr: '10'))
         disableConcurrentBuilds()
+        timestamps()
     }
 
     stages {
 
-        // ── 1. Checkout ─────────────────────────────
+        // ─────────────────────────────
+        // 1. CHECKOUT
+        // ─────────────────────────────
         stage('Checkout') {
             steps {
                 checkout scm
-                echo "Branch: ${env.BRANCH_NAME} | Commit: ${env.GIT_COMMIT?.take(8)}"
+                echo "Branch: ${env.BRANCH_NAME}"
+                echo "Commit: ${env.GIT_COMMIT?.take(8)}"
             }
         }
 
-        // ── 2. Install ──────────────────────────────
+        // ─────────────────────────────
+        // 2. INSTALL
+        // ─────────────────────────────
         stage('Install') {
             steps {
                 sh 'node --version'
@@ -38,7 +43,9 @@ pipeline {
             }
         }
 
-        // ── 3. Lint ─────────────────────────────────
+        // ─────────────────────────────
+        // 3. LINT
+        // ─────────────────────────────
         stage('Lint') {
             steps {
                 sh 'npm run lint -- --format json --output-file eslint-report.json || true'
@@ -51,7 +58,9 @@ pipeline {
             }
         }
 
-        // ── 4. Build ────────────────────────────────
+        // ─────────────────────────────
+        // 4. BUILD
+        // ─────────────────────────────
         stage('Build') {
             steps {
                 withCredentials([
@@ -68,10 +77,15 @@ pipeline {
             }
         }
 
-        // ── 5. Unit Tests ───────────────────────────
+        // ─────────────────────────────
+        // 5. UNIT TESTS
+        // ─────────────────────────────
         stage('Unit Tests') {
             steps {
-                sh 'npm run test:unit -- --reporter=junit --outputFile=reports/unit-tests.xml'
+                sh '''
+                    mkdir -p reports
+                    npm run test:unit -- --reporter=junit --outputFile=reports/unit-tests.xml
+                '''
             }
             post {
                 always {
@@ -80,17 +94,24 @@ pipeline {
             }
         }
 
-        // ── 6. Integration Tests (FIXED) ────────────
+        // ─────────────────────────────
+        // 6. INTEGRATION TESTS
+        // ─────────────────────────────
         stage('Integration Tests') {
             steps {
                 withCredentials([
                     string(credentialsId: 'SUPABASE_URL', variable: 'SUPABASE_URL'),
-                    string(credentialsId: 'SUPABASE_ANON_KEY', variable: 'SUPABASE_SERVICE_ANON_KEY')
+                    string(credentialsId: 'SUPABASE_ANON_KEY', variable: 'SUPABASE_ANON_KEY')
                 ]) {
                     sh '''
+                        mkdir -p reports
+
                         export SUPABASE_URL=$SUPABASE_URL
                         export SUPABASE_ANON_KEY=$SUPABASE_ANON_KEY
-                        npm run test:integration -- --reporter=junit --outputFile=reports/integration-tests.xml || true
+
+                        npm run test:integration \
+                        -- --reporter=junit \
+                        --outputFile=reports/integration-tests.xml || true
                     '''
                 }
             }
@@ -101,7 +122,9 @@ pipeline {
             }
         }
 
-        // ── 7. Coverage (SAFE) ──────────────────────
+        // ─────────────────────────────
+        // 7. COVERAGE
+        // ─────────────────────────────
         stage('Coverage') {
             steps {
                 withCredentials([
@@ -110,7 +133,8 @@ pipeline {
                 ]) {
                     sh '''
                         export SUPABASE_URL=$SUPABASE_URL
-                        export SUPABASE_ANON_KEY=$SUPABASE_SERVICE_ANON_KEY
+                        export SUPABASE_ANON_KEY=$SUPABASE_ANON_KEY
+
                         npm run test:coverage || true
                     '''
                 }
@@ -122,22 +146,31 @@ pipeline {
             }
         }
 
-        // ── 8. SonarQube ────────────────────────────
+        // ─────────────────────────────
+        // 8. SONARQUBE ANALYSIS
+        // ─────────────────────────────
         stage('SonarQube Analysis') {
             steps {
-                withCredentials([
-                    string(credentialsId: 'SONAR_TOKEN', variable: 'SONAR_TOKEN')
-                ]) {
-                    sh '''
-                        npx sonar-scanner \
-                          -Dsonar.host.url=$SONAR_HOST_URL \
-                          -Dsonar.token=$SONAR_TOKEN \
-                          -Dsonar.projectVersion=$BUILD_NUMBER
-                    '''
+
+                withSonarQubeEnv('sonarqube') {
+
+                    withCredentials([
+                        string(credentialsId: 'SONAR_TOKEN', variable: 'SONAR_TOKEN')
+                    ]) {
+
+                        sh '''
+                            npx sonar-scanner \
+                              -Dsonar.token=$SONAR_TOKEN \
+                              -Dsonar.projectVersion=$BUILD_NUMBER
+                        '''
+                    }
                 }
             }
         }
 
+        // ─────────────────────────────
+        // 9. QUALITY GATE
+        // ─────────────────────────────
         stage('Quality Gate') {
             steps {
                 timeout(time: 10, unit: 'MINUTES') {
@@ -146,7 +179,9 @@ pipeline {
             }
         }
 
-        // ── 9. Functional Tests ─────────────────────
+        // ─────────────────────────────
+        // 10. FUNCTIONAL TESTS
+        // ─────────────────────────────
         stage('Functional Tests') {
             when {
                 anyOf {
@@ -154,31 +189,41 @@ pipeline {
                     branch 'staging'
                 }
             }
+
             steps {
                 sh '''
                     npm run preview &
                     PREVIEW_PID=$!
-                    sleep 5
+
+                    sleep 8
 
                     pip install -r tests/functional/requirements.txt --quiet
-                    cd tests/functional && pytest . -v --tb=short || true
+
+                    cd tests/functional
+                    pytest . -v --tb=short || true
 
                     kill $PREVIEW_PID || true
                 '''
             }
         }
 
-        // ── 10. Deploy ──────────────────────────────
+        // ─────────────────────────────
+        // 11. DEPLOY
+        // ─────────────────────────────
         stage('Deploy') {
             when {
                 branch 'main'
             }
+
             steps {
-                withCredentials([sshUserPrivateKey(
-                    credentialsId: 'DEPLOY_SSH_KEY',
-                    keyFileVariable: 'SSH_KEY_FILE',
-                    usernameVariable: 'DEPLOY_USER'
-                )]) {
+                withCredentials([
+                    sshUserPrivateKey(
+                        credentialsId: 'DEPLOY_SSH_KEY',
+                        keyFileVariable: 'SSH_KEY_FILE',
+                        usernameVariable: 'DEPLOY_USER'
+                    )
+                ]) {
+
                     sh '''
                         ansible-playbook ansible/playbook.yml \
                           -i ansible/inventory.ini \
@@ -196,11 +241,13 @@ pipeline {
         always {
             cleanWs()
         }
+
         success {
-            echo "✅ Pipeline SUCCESS — build #${env.BUILD_NUMBER}"
+            echo "✅ Pipeline SUCCESS — build #${BUILD_NUMBER}"
         }
+
         failure {
-            echo "❌ Pipeline FAILED — build #${env.BUILD_NUMBER}"
+            echo "❌ Pipeline FAILED — build #${BUILD_NUMBER}"
         }
     }
 }
