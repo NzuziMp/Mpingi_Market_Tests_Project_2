@@ -65,7 +65,7 @@ def driver():
     if not chromedriver_path or not os.path.exists(chromedriver_path):
         raise RuntimeError(
             "CHROMEDRIVER_PATH is not defined or invalid. "
-            "Example: C:\\WebDrivers\\chromedriver.exe"
+            "Example: C:\WebDrivers\chromedriver.exe"
         )
 
     service = Service(executable_path=chromedriver_path)
